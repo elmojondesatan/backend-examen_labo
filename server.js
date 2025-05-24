@@ -2,24 +2,20 @@ const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2');
 
-// Crear una instancia de la aplicación Express
 const app = express();
 
-// Usar CORS para permitir solicitudes desde el frontend
 app.use(cors({
-  origin: 'http://127.0.0.1:5500' // Ajusta este origen al de tu frontend
+  origin: 'http://127.0.0.1:5500'
 }));
 
-// Middlewares para la configuración básica de Express
-app.use(express.json()); // Para parsear JSON en las solicitudes
-app.use(express.urlencoded({ extended: false })); // Para parsear formularios
+app.use(express.json());
+app.use(express.urlencoded({ extended: false }));
 
-// Crear conexión a la base de datos MySQL
 const db = mysql.createConnection({
   host: 'localhost',
-  user: 'root',    // Cambia esto según tu configuración
-  password: 'alonsov1234',    // Cambia esto según tu configuración
-  database: 'examenlaboratorio'  // Nombre de tu base de datos
+  user: 'root',
+  password: 'alonsov1234',
+  database: 'examenlaboratorio'
 });
 
 db.connect((err) => {
@@ -30,64 +26,88 @@ db.connect((err) => {
   console.log('Conexión exitosa a la base de datos');
 });
 
+// Registro
 app.post("/register", (req, res) => {
   const { usuario, nombre, correo, telefono, clave } = req.body;
 
-  // Verifica si el correo ya está registrado
   const checkQuery = `SELECT * FROM profesor WHERE correo = ?`;
   db.query(checkQuery, [correo], (err, results) => {
-      if (err) {
-          console.error(err);
-          return res.status(500).json({ message: 'Error en la base de datos' });
-      }
+    if (err) {
+      console.error(err);
+      return res.status(500).json({ message: 'Error en la base de datos' });
+    }
 
-      if (results.length > 0) {
-          return res.status(400).json({ message: 'El correo ya está registrado' });
-      }
+    if (results.length > 0) {
+      return res.status(400).json({ message: 'El correo ya está registrado' });
+    }
 
-      // Si no está registrado, inserta el nuevo profesor
-      const query = `INSERT INTO profesor (usuario, nombre, correo, telefono, clave) VALUES (?, ?, ?, ?, ?)`;
-      db.query(query, [usuario, nombre, correo, telefono, clave], (error, result) => {
-          if (error) {
-              console.error(error);
-              return res.status(500).json({ message: 'Error al registrar el profesor' });
-          }
-          res.json({ message: 'Profesor registrado exitosamente' });
-      });
+    const query = `INSERT INTO profesor (usuario, nombre, correo, telefono, clave) VALUES (?, ?, ?, ?, ?)`;
+    db.query(query, [usuario, nombre, correo, telefono, clave], (error) => {
+      if (error) {
+        console.error(error);
+        return res.status(500).json({ message: 'Error al registrar el profesor' });
+      }
+      res.json({ message: 'Profesor registrado exitosamente' });
+    });
   });
 });
 
-// Ruta para iniciar sesión
+// Login
 app.post('/login', (req, res) => {
   const { correo, clave } = req.body;
 
-  // Consulta para buscar el usuario por correo
   const query = 'SELECT * FROM profesor WHERE correo = ?';
   db.query(query, [correo], (err, results) => {
-      if (err) {
-          console.error('Error de conexión:', err);
-          return res.status(500).json({ message: 'Error en el servidor' });
-      }
+    if (err) {
+      console.error('Error de conexión:', err);
+      return res.status(500).json({ message: 'Error en el servidor' });
+    }
 
-      if (results.length === 0) {
-          return res.status(401).json({ message: 'Usuario no encontrado' });
-      }
+    if (results.length === 0) {
+      return res.status(401).json({ message: 'Usuario no encontrado' });
+    }
 
-      const user = results[0];
+    const user = results[0];
 
-      // Verificar que la contraseña sea correcta
-      if (user.clave === clave) {
-          return res.json({ message: 'Login exitoso' });
-      } else {
-          return res.status(401).json({ message: 'Contraseña incorrecta' });
-      }
+    if (user.clave === clave) {
+      return res.json({ message: 'Login exitoso' });
+    } else {
+      return res.status(401).json({ message: 'Contraseña incorrecta' });
+    }
   });
 });
 
+// Recuperación de contraseña
+app.post("/recuperar", (req, res) => {
+  const { correo } = req.body;
 
+  const buscarUsuario = 'SELECT * FROM profesor WHERE correo = ?';
+  db.query(buscarUsuario, [correo], (err, result) => {
+    if (err) {
+      console.error('Error en la base de datos:', err);
+      return res.status(500).json({ message: "Error del servidor" });
+    }
 
+    if (result.length === 0) {
+      return res.status(404).json({ message: "Correo no encontrado" });
+    }
 
-// Configurar el puerto en el que se escucharán las solicitudes
+    // Generación de nueva contraseña temporal
+    const nuevaClave = Math.random().toString(36).slice(2, 10);
+
+    const actualizarClave = 'UPDATE profesor SET clave = ? WHERE correo = ?';
+    db.query(actualizarClave, [nuevaClave, correo], (err2) => {
+      if (err2) {
+        console.error('Error al actualizar la clave:', err2);
+        return res.status(500).json({ message: "Error al actualizar clave" });
+      }
+
+      // Responder al frontend con la nueva clave
+      return res.json({ message: 'Contraseña actualizada', nuevaClave });
+    });
+  });
+});
+
 const PORT = 3000;
 app.listen(PORT, () => {
   console.log(`Servidor escuchando en http://localhost:${PORT}`);
