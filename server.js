@@ -1,261 +1,123 @@
-require('dotenv').config(); // Carga variables desde .env
-
 const express = require('express');
 const cors = require('cors');
 const mysql = require('mysql2');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
+require('dotenv').config();
 
 const app = express();
+const PORT = process.env.PORT || 3000;
 
-// Configuración
-const PORT = 3000;
-const JWT_SECRET = process.env.JWT_SECRET;
-
-// Middlewares
-app.use(cors({
-  origin: 'http://127.0.0.1:5500'
-}));
+// Middleware
+app.use(cors({ origin: '*' })); // Permite conexiones desde cualquier origen (ideal para desarrollo)
 app.use(express.json());
-app.use(express.urlencoded({ extended: false }));
 
-// Conexión a MySQL (Clever Cloud)
+// Conexión a la base de datos Clever Cloud
 const db = mysql.createConnection({
-  host: process.env.DB_HOST,
-  user: process.env.DB_USER,
-  password: process.env.DB_PASSWORD,
-  database: process.env.DB_NAME,
-  port: process.env.DB_PORT,
-  multipleStatements: true
+  host: process.env.MYSQL_HOST,
+  user: process.env.MYSQL_USER,
+  password: process.env.MYSQL_PASSWORD,
+  database: process.env.MYSQL_DB,
+  port: process.env.MYSQL_PORT
 });
 
-db.connect((err) => {
+// Verificar conexión
+db.connect(err => {
   if (err) {
-    console.error('Error de conexión a la base de datos:', err);
-    return;
+    console.error('❌ Error de conexión a la base de datos:', err);
+  } else {
+    console.log('✅ Conectado a la base de datos de Clever Cloud');
   }
-  console.log('Conexión exitosa a la base de datos');
 });
 
-function authenticateToken(req, res, next) {
-  const authHeader = req.headers['authorization'];
-  const token = authHeader && authHeader.split(' ')[1];
-  
-  if (!token) return res.sendStatus(401);
+// Endpoint de prueba
+app.get('/', (req, res) => {
+  res.send('✅ API funcionando correctamente');
+});
 
-  jwt.verify(token, JWT_SECRET, (err, user) => {
-    if (err) return res.sendStatus(403);
-    req.user = user;
-    next();
-  });
-}
+// Registro de usuario
+app.post('/api/register', async (req, res) => {
+  const { nombre, email, password, rol } = req.body;
 
-app.post("/register", async (req, res) => {
-  const { usuario, nombre, correo, telefono, clave } = req.body;
-
-  if (!usuario || !nombre || !correo || !clave) {
-    return res.status(400).json({ message: 'Todos los campos son requeridos' });
+  if (!nombre || !email || !password || !rol) {
+    return res.status(400).json({ message: 'Todos los campos son obligatorios' });
   }
 
   try {
-    const checkQuery = `SELECT * FROM profesor WHERE correo = ?`;
-    db.query(checkQuery, [correo], async (err, results) => {
-      if (err) return res.status(500).json({ message: 'Error en la base de datos' });
+    const hashedPassword = await bcrypt.hash(password, 10);
 
-      if (results.length > 0) {
-        return res.status(400).json({ message: 'El correo ya está registrado' });
+    const query = `INSERT INTO usuarios (nombre, correo, contraseña, rol) VALUES (?, ?, ?, ?)`;
+
+    db.query(query, [nombre, email, hashedPassword, rol], (err, result) => {
+      if (err) {
+        if (err.code === 'ER_DUP_ENTRY') {
+          return res.status(400).json({ message: 'Correo ya registrado' });
+        }
+        return res.status(500).json({ message: 'Error al registrar usuario', error: err });
       }
-
-      const hashedPassword = await bcrypt.hash(clave, 10);
-
-      const query = `INSERT INTO profesor (usuario, nombre, correo, telefono, clave) VALUES (?, ?, ?, ?, ?)`;
-      db.query(query, [usuario, nombre, correo, telefono, hashedPassword], (error, results) => {
-        if (error) return res.status(500).json({ message: 'Error al registrar el profesor' });
-        
-        const token = jwt.sign(
-          { id: results.insertId, correo, nombre },
-          JWT_SECRET,
-          { expiresIn: '24h' }
-        );
-        
-        res.json({
-          message: 'Profesor registrado exitosamente',
-          token,
-          user: { id: results.insertId, nombre, correo, usuario }
-        });
-      });
+      res.status(200).json({ message: 'Registro exitoso' });
     });
-  } catch (error) {
-    console.error(error);
-    res.status(500).json({ message: 'Error en el servidor' });
+  } catch (err) {
+    res.status(500).json({ message: 'Error al procesar el registro', error: err });
   }
 });
 
-app.post('/login', (req, res) => {
-  const { correo, clave } = req.body;
+// Login de usuario
+app.post('/api/login', (req, res) => {
+  const { email, password } = req.body;
 
-  if (!correo || !clave) {
-    return res.status(400).json({ message: 'Correo y contraseña son requeridos' });
-  }
-
-  const query = 'SELECT * FROM profesor WHERE correo = ?';
-  db.query(query, [correo], async (err, results) => {
-    if (err) return res.status(500).json({ message: 'Error en el servidor' });
-
-    if (results.length === 0) {
-      return res.status(401).json({ message: 'Credenciales incorrectas' });
-    }
+  db.query(`SELECT * FROM usuarios WHERE correo = ?`, [email], async (err, results) => {
+    if (err) return res.status(500).json({ message: 'Error en la base de datos' });
+    if (results.length === 0) return res.status(404).json({ message: 'Usuario no encontrado' });
 
     const user = results[0];
 
-    try {
-      const match = await bcrypt.compare(clave, user.clave);
-      
-      if (match) {
-        const token = jwt.sign(
-          { id: user.id, correo: user.correo, nombre: user.nombre },
-          JWT_SECRET,
-          { expiresIn: '24h' }
-        );
-        
-        return res.json({
-          message: 'Login exitoso',
-          token,
-          user: { id: user.id, nombre: user.nombre, correo: user.correo, usuario: user.usuario }
-        });
-      } else {
-        return res.status(401).json({ message: 'Credenciales incorrectas' });
-      }
-    } catch (error) {
-      console.error(error);
-      return res.status(500).json({ message: 'Error en el servidor' });
-    }
-  });
-});
+    const validPassword = await bcrypt.compare(password, user.contraseña);
+    if (!validPassword) return res.status(401).json({ message: 'Contraseña incorrecta' });
 
-app.post('/recuperar', (req, res) => {
-  const { correo } = req.body;
-  
-  if (!correo) {
-    return res.status(400).json({ message: 'Correo es requerido' });
-  }
+    const token = jwt.sign(
+      { id: user.id, rol: user.rol },
+      process.env.JWT_SECRET,
+      { expiresIn: '1h' }
+    );
 
-  const query = 'SELECT * FROM profesor WHERE correo = ?';
-  db.query(query, [correo], (err, results) => {
-    if (err) return res.status(500).json({ message: 'Error en el servidor' });
-
-    if (results.length === 0) {
-      return res.status(404).json({ message: 'Correo no encontrado' });
-    }
-
-    return res.json({ message: 'Correo enviado' });
-  });
-});
-
-app.use(authenticateToken);
-
-// Obtener alumnos por grado y sección
-app.get('/alumnos', (req, res) => {
-  const { grado, seccion } = req.query;
-  
-  if (!grado || !seccion) {
-    return res.status(400).json({ message: 'Grado y sección son requeridos' });
-  }
-
-  const query = 'SELECT * FROM alumnos WHERE grado = ? AND seccion = ?';
-  db.query(query, [grado, seccion], (err, results) => {
-    if (err) return res.status(500).json({ message: 'Error al obtener alumnos' });
-    res.json(results);
-  });
-});
-
-// Agregar alumno
-app.post('/alumnos', (req, res) => {
-  const { nombre, clave, correo, grado, seccion } = req.body;
-  
-  if (!nombre || !clave || !grado || !seccion) {
-    return res.status(400).json({ message: 'Nombre, clave, grado y sección son requeridos' });
-  }
-
-  const query = 'INSERT INTO alumnos (nombre, clave, correo, grado, seccion) VALUES (?, ?, ?, ?, ?)';
-  db.query(query, [nombre, clave, correo, grado, seccion], (err, results) => {
-    if (err) return res.status(500).json({ message: 'Error al agregar alumno' });
-    
-    res.json({
-      success: true,
-      alumno: {
-        id: results.insertId,
-        nombre,
-        clave,
-        correo,
-        grado,
-        seccion
-      }
+    res.status(200).json({
+      message: 'Login exitoso',
+      token,
+      nombre: user.nombre,
+      rol: user.rol
     });
   });
 });
 
-// Registrar asistencia
-app.post('/asistencia', (req, res) => {
-  const { alumno_id, estado, fecha, grado, seccion } = req.body;
-  
-  if (!alumno_id || !estado || !fecha || !grado || !seccion) {
-    return res.status(400).json({ message: 'Todos los campos son requeridos' });
-  }
 
-  const checkQuery = 'SELECT nombre FROM alumnos WHERE id = ?';
-  db.query(checkQuery, [alumno_id], (err, results) => {
-    if (err) return res.status(500).json({ message: 'Error en la base de datos' });
-    
-    if (results.length === 0) {
-      return res.status(404).json({ message: 'Alumno no encontrado' });
-    }
-
-    const alumnoNombre = results[0].nombre;
-
-    const insertQuery = 'INSERT INTO asistencia (alumno_id, estado, fecha, grado, seccion) VALUES (?, ?, ?, ?, ?)';
-    db.query(insertQuery, [alumno_id, estado, fecha, grado, seccion], (err, results) => {
-      if (err) return res.status(500).json({ message: 'Error al registrar asistencia' });
-      
-      res.json({
-        success: true,
-        nombre: alumnoNombre
-      });
-    });
-  });
-});
-
-// Reporte de asistencia
-app.get('/asistencia/reporte', (req, res) => {
-  const { grado, seccion, fecha } = req.query;
-  
-  if (!grado || !seccion) {
-    return res.status(400).json({ message: 'Grado y sección son requeridos' });
-  }
-
-  let query = `
-    SELECT a.nombre, asis.estado, asis.fecha 
-    FROM asistencia asis
-    JOIN alumnos a ON asis.alumno_id = a.id
-    WHERE asis.grado = ? AND asis.seccion = ?
-  `;
-  
-  const params = [grado, seccion];
-  
-  if (fecha) {
-    query += ' AND asis.fecha = ?';
-    params.push(fecha);
-  }
-  
-  db.query(query, params, (err, results) => {
-    if (err) return res.status(500).json({ message: 'Error al obtener reporte' });
+app.get("/api/niveles", (req, res) => {
+  db.query("SELECT * FROM niveles", (err, results) => {
+    if (err) return res.status(500).json({ error: "Error al obtener niveles" });
     res.json(results);
   });
 });
+
+app.get("/api/grados/:nivel_id", (req, res) => {
+  const { nivel_id } = req.params;
+  db.query("SELECT * FROM grados WHERE nivel_id = ?", [nivel_id], (err, results) => {
+    if (err) return res.status(500).json({ error: "Error al obtener grados" });
+    res.json(results);
+  });
+});
+
+app.get("/api/secciones/:grado_id", (req, res) => {
+  const { grado_id } = req.params;
+  db.query("SELECT * FROM secciones WHERE grado_id = ?", [grado_id], (err, results) => {
+    if (err) return res.status(500).json({ error: "Error al obtener secciones" });
+    res.json(results);
+  });
+});
+
+
 
 // Iniciar servidor
 app.listen(PORT, () => {
-  console.log(`Servidor escuchando en http://localhost:${PORT}`);
+  console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
 });
 
-module.exports = app;
