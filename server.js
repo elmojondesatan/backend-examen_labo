@@ -231,6 +231,44 @@ app.post('/api/asistencias', autenticar, async (req, res) => {
   }
 });
 
+// Guardar uniformes
+app.post('/api/uniformes', autenticar, async (req, res) => {
+  const { estudiante_id, fecha, completo, detalles, partes } = req.body;
+
+  if (!estudiante_id || !fecha || !partes || typeof partes !== 'object') {
+    return res.status(400).json({ error: 'Datos incompletos del uniforme' });
+  }
+
+  const connection = await pool.getConnection();
+  try {
+    await connection.beginTransaction();
+
+    const [resultado] = await connection.query(`
+      INSERT INTO uniformes (estudiante_id, fecha, completo, detalles)
+      VALUES (?, ?, ?, ?)
+    `, [estudiante_id, fecha, completo, detalles]);
+
+    const uniforme_id = resultado.insertId;
+
+    for (const prenda in partes) {
+      await connection.query(`
+        INSERT INTO uniforme_partes (uniforme_id, prenda, presente)
+        VALUES (?, ?, ?)
+      `, [uniforme_id, prenda, partes[prenda]]);
+    }
+
+    await connection.commit();
+    res.status(201).json({ mensaje: 'Uniforme guardado correctamente' });
+  } catch (err) {
+    await connection.rollback();
+    console.error(err);
+    res.status(500).json({ error: 'Error al guardar el uniforme' });
+  } finally {
+    connection.release();
+  }
+});
+
+
 // Verificar tablas necesarias
 (async () => {
   try {
