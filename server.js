@@ -1,7 +1,7 @@
 require('dotenv').config();
 const express = require('express');
 const cors = require('cors');
-const mysql = require('mysql2/promise'); // Usamos la versión promise
+const mysql = require('mysql2/promise');
 const bcrypt = require('bcrypt');
 const jwt = require('jsonwebtoken');
 
@@ -99,8 +99,43 @@ app.get('/api/estudiantes', autenticar, async (req, res) => {
   }
 });
 
+// Endpoint para agregar un nuevo estudiante
+app.post('/api/estudiantes/agregar', autenticar, async (req, res) => {
+  const { nombre, correo, nivel, grado, seccion_id } = req.body;
+
+  if (!nombre || !correo || !nivel || !grado || !seccion_id) {
+    return res.status(400).json({ error: 'Faltan datos obligatorios' });
+  }
+
+  try {
+    const [seccionResult] = await pool.query(
+      'SELECT id FROM secciones WHERE id = ?',
+      [seccion_id]
+    );
+
+    if (seccionResult.length === 0) {
+      return res.status(404).json({ error: 'Sección no encontrada' });
+    }
+
+    const [resultado] = await pool.query(
+      `INSERT INTO estudiantes 
+        (nombre, correo, nivel, grado, seccion_id, activo) 
+       VALUES (?, ?, ?, ?, ?, 1)`,
+      [nombre, correo, nivel, grado, seccion_id]
+    );
+
+    res.status(201).json({ success: true, id: resultado.insertId });
+  } catch (err) {
+    console.error('Error al agregar estudiante:', err);
+    res.status(500).json({ error: 'Error del servidor al agregar estudiante' });
+  }
+});
+
 // Endpoint para guardar asistencias
 app.post('/api/asistencias', autenticar, async (req, res) => {
+  // Log para verificar qué datos están llegando en el body
+  console.log('Cuerpo recibido:', req.body);  // Este log te mostrará el contenido del body
+
   const { estudiantes, fecha, grado, seccion } = req.body;
   const registrado_por = req.user.id;
 
@@ -112,7 +147,6 @@ app.post('/api/asistencias', autenticar, async (req, res) => {
   try {
     await connection.beginTransaction();
 
-    // Primero obtenemos el ID de la sección
     const [secciones] = await connection.query(`
       SELECT s.id 
       FROM secciones s
@@ -126,7 +160,6 @@ app.post('/api/asistencias', autenticar, async (req, res) => {
 
     const seccion_id = secciones[0].id;
 
-    // Insertamos todas las asistencias
     for (const estudiante of estudiantes) {
       await connection.query(`
         INSERT INTO asistencias 
@@ -200,7 +233,6 @@ app.post('/api/login', async (req, res) => {
 app.listen(PORT, async () => {
   console.log(`🚀 Servidor corriendo en http://localhost:${PORT}`);
   
-  // Crear tablas si no existen (solo para desarrollo)
   try {
     await pool.query(`
       CREATE TABLE IF NOT EXISTS asistencias (
