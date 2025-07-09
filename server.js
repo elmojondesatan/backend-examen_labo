@@ -186,12 +186,17 @@ app.post('/api/asistencias', autenticar, async (req, res) => {
   const { estudiantes, fecha, grado, seccion } = req.body;
   const registrado_por = req.user.id;
 
+  console.log(estudiantes);
+  console.log(fecha);
+  console.log(grado);
+  console.log(seccion);
   if (!estudiantes || !fecha || !grado || !seccion) {
     return res.status(400).json({ error: 'Datos incompletos' });
   }
 
   const connection = await pool.getConnection();
   try {
+    console.log('hola')
     await connection.beginTransaction();
 
     const [secciones] = await connection.query(`
@@ -208,8 +213,8 @@ app.post('/api/asistencias', autenticar, async (req, res) => {
     for (const estudiante of estudiantes) {
       await connection.query(`
         INSERT INTO asistencias 
-        (estudiante_id, seccion_id, fecha, estado, tarde, observaciones, registrado_por) 
-        VALUES (?, ?, ?, ?, ?, ?, ?)
+        (estudiante_id, fecha, estado, tarde, observaciones, registrado_por) 
+        VALUES (?, ?, ?, ?, ?, ?)
       `, [
         estudiante.id,
         seccion_id,
@@ -236,8 +241,7 @@ app.post('/api/uniformes', autenticar, async (req, res) => {
   const { estudiante_id, fecha, completo, detalles, partes } = req.body;
 
   if (!estudiante_id || !fecha || !partes || typeof partes !== 'object') {
-    // return res.status(400).json({ error: 'Datos incompletos del uniforme' });
-    return res.status(400).json({ error: estudiante_id});
+    return res.status(400).json({ error: 'Datos incompletos del uniforme' });
   }
 
   const connection = await pool.getConnection();
