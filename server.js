@@ -236,7 +236,8 @@ app.post('/api/uniformes', autenticar, async (req, res) => {
   const { estudiante_id, fecha, completo, detalles, partes } = req.body;
 
   if (!estudiante_id || !fecha || !partes || typeof partes !== 'object') {
-    return res.status(400).json({ error: 'Datos incompletos del uniforme' });
+    // return res.status(400).json({ error: 'Datos incompletos del uniforme' });
+    return res.status(400).json({ error: estudiante_id});
   }
 
   const connection = await pool.getConnection();
